@@ -1,0 +1,431 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <title></title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.15/css/jquery.dataTables.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.15/css/dataTables.bootstrap.css" />
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap-theme.css" />
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.15/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.js"></script>
+    <script>
+        var txt,
+            dt = null, //jquery dataTable
+            dataSet = [],
+            kayitlar = [],
+            arrDistinctUsers = [],
+            arrDistinctUserID = [],
+                GUI = {};//GUI elements wrapped to jQuery
+
+        function Kayit(cihazID, userID, hareket, tarih, saat, ok) {
+            if (Array.isArray(cihazID)) {
+                this.CihazID = cihazID[0];
+                this.UserID = cihazID[1];
+                this.Hareket = cihazID[2];
+                this.Tarih = cihazID[3];
+                this.Saat = cihazID[4];
+                this.OK = cihazID[5];
+                this.Giris = false;
+
+            } else {
+                this.CihazID = cihazID;
+                this.UserID = userID;
+                this.Hareket = hareket;
+                this.Tarih = tarih;
+                this.Saat = saat;
+                this.OK = ok;
+                this.Giris = false;
+            }
+        }
+
+        Kayit.prototype.toArray = function () {
+            return [
+                this.CihazID,
+                this.UserID,
+                this.Hareket,
+                this.Tarih,
+                this.Saat,
+                this.OK,
+                this.Giris,
+                this.Cikis
+            ];
+        }
+
+
+        /**
+        Aynı userId, hareket, tarih ve saatte iki kayıt varsa birini tut (f_removeDuplicates)
+        Aynı userId, hareket ve tarihte birden fazla kayıt varsa: (f_removeUnnecessaries)
+            hareket == 1 (giriş) > en küçüğünü tut
+            hareket == 0 (çıkış) > en büyüğünü tut
+        */
+
+        function runAuto() {
+            // gereksiz karakterleri sil
+            cleanWhitespaces();
+            // dizilere dönüştür
+            parse();
+            // tabloya bağla
+            bindTable();
+            // kullanıcılara göre grupla
+            var disUsers = distinctUsers();
+            // Gereksiz kayıtları sil
+            f_leaveFirstAndLastMovement(disUsers);
+            bindUsers(disUsers);
+        }
+
+        function cleanWhitespaces(_text) {
+            var text = _text || GUI.txt.val();
+            if (!text) {
+                alert('Temizlenecek bir bilgi bulunamadı!');
+                return;
+            }
+            // LF to ;
+            text = text.replace(/(?:\r\n|\r|\n)/g, ';');
+            text = text.replace(';', ';\n');
+            text = text.replace(/\s/g, "");
+            GUI.txt.val(text);
+            GUI.btnClean.find("i").eq(0).addClass("glyphicon glyphicon-ok", 1000);
+            return text;
+        }
+
+
+        function parse(_text) {
+            var text = _text || GUI.txt.val();
+            if (!text) {
+                alert('Ayrıştırılacak bir bilgi bulunamadı!');
+                return;
+            }
+            text = text.replace(/(?:\r\n|\r|\n)/g, '');
+            var lines = text.split(';');
+            lines.forEach(function (line) {
+                if (line) {
+                    var arr = line.split(',');
+                    arr.push(false);
+                    arr.push(false);
+                    dataSet.push(arr);
+                    //var newRec = new Kayit(...arr); // ES 6 ile
+                    var newRec = new Kayit(arr);
+                    // Eğer aynı userId, hareket, tarih, saat varsa ekleme!
+                    var bExists = kayitlar.some(function (_rec) {
+                        if (_rec.UserID === newRec.UserID &&
+                            _rec.Hareket === newRec.Hareket &&
+                            _rec.Tarih === newRec.Tarih &&
+                            _rec.Saat === newRec.Saat) {
+                            return true;
+                        }
+                    });
+                    if (!bExists) kayitlar.push(newRec);
+                }
+            });
+            console.log("budada");
+            GUI.btnParse.find("i").eq(0).addClass("glyphicon glyphicon-ok", 1000);
+        }
+
+        function f_leaveFirstAndLastMovement(_disUsers) {
+            var recs = _disUsers || arrDistinctUsers;
+            recs.forEach(function (user) {
+                for (var tarih in user.Hareketler) {
+                    if (user.Hareketler.hasOwnProperty(tarih)) {
+                        var arrKayitlar = user.Hareketler[tarih];
+                        if (arrKayitlar.length > 2) {
+                            // 1 giriş ve 1 çıkıştan fazla kayıt varsa ilk-...-son arasındakileri at
+                            arrKayitlar.splice(1, (arrKayitlar.length - 2));
+                        }
+                    }
+                }
+            });
+        }
+
+        function distinctUsers(_kayitlar) {
+            var recs = _kayitlar || kayitlar;
+            arrDistinctUsers = [];
+
+            if (recs.length === 0) {
+                alert('Kayıtlar boş olduğu için ilerlenemez!');
+                return;
+            }
+            var usersObj = _.groupBy(recs, "UserID"); //Object {002002: Array(40), 002004: Array(42)}
+            for (var prop in usersObj) {
+                if (usersObj.hasOwnProperty(prop)) {
+                    var grpTarihHareketler = _.groupBy(usersObj[prop], "Tarih");
+                    var user = {
+                        UserID: prop,
+                        Hareketler: grpTarihHareketler,
+                        Movements: (function (_user, _grpTarihHareketler) {
+                            console.log(_user);
+                            var movements = [];
+                            for (var grpName in _grpTarihHareketler) {
+                                if (_grpTarihHareketler.hasOwnProperty(grpName)) {
+                                    _grpTarihHareketler[grpName].sort(function (prev, next) {
+                                        if (prev.Hareket > next.Hareket) return -1;
+                                        else return 1;
+                                    });
+                                    _grpTarihHareketler[grpName].sort(function (prev, next) {
+                                        prev.Giris = (prev.Hareket == "1");
+                                        if (prev.Hareket === next.Hareket) {
+                                            if (next.Saat > prev.Saat) return -1;
+                                            else return 1;
+                                        }
+                                    });
+                                    movements = movements.concat(_grpTarihHareketler[grpName]);
+                                }
+                            }
+                            return movements;
+                        })(user, grpTarihHareketler)
+                    }
+                    arrDistinctUsers.push(user);
+                }
+            }
+
+            GUI.btnDistinctUsers.find("i").eq(0).addClass("glyphicon glyphicon-ok", 1000);
+            return arrDistinctUsers;
+        }
+
+        function bindUserMovementDates(_user) {
+
+            var fCalismaSuresi1 = function (_arrTarih) {
+                if (_arrTarih.length != 2) return "???";
+                var d1 = new Date(); // giriş
+                d1.setHours(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[1]);
+                d1.setMinutes(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[2]);
+                var d0 = new Date(); // cikis
+                d0.setHours(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[1]);
+                d0.setMinutes(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[2]);
+
+                var dfark = d0 - d1;
+
+                return Math.floor((dfark / 1000) / 3600) + "." + Math.floor((dfark / 1000) / 60) % 60;
+            }
+            var fCalismaSuresi = function (_arrTarih) {
+                if (_arrTarih.length !== 2) return '<span class="badge btn-warning pull-right">???</span>';
+                var d1 = new Date(); // giriş
+                d1.setHours(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[1]);
+                d1.setMinutes(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[2]);
+                var d0 = new Date(); // cikis
+                d0.setHours(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[1]);
+                d0.setMinutes(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[2]);
+
+                var dfark = d0 - d1;
+                return '<span class="badge btn-info pull-right">' +
+                    Math.floor((dfark / 1000) / 3600) +
+                    "′ " +
+                    Math.floor((dfark / 1000) / 60) % 60 +
+                    '″</span>';
+            }
+            // clean users
+            GUI.ulBadges.html('');
+
+            for (var dateProp in _user.Hareketler) {
+                if (_user.Hareketler.hasOwnProperty(dateProp)) {
+                    var arrTarih = _user.Hareketler[dateProp];
+
+                    var li = '<li class="active">' +
+                        '<a href="#" onclick="userMovementDateSelected(\'' + dateProp + '\');return 0;">' + dateProp +
+                         fCalismaSuresi(arrTarih) +
+                        '</a></li>';
+                    GUI.ulBadges.append($(li));
+                }
+            }
+        }
+
+        function bindUsers(_users) {
+            var arrUsers = _users || arrDistinctUsers;
+
+            if (arrUsers.length === 0) {
+                alert('Kullanıcı listesi boş olduğu için ilerlenemez!');
+                return;
+            }
+            // clean users
+            GUI.selUsers.html('');
+
+            arrUsers.forEach(function (_user) {
+                GUI.selUsers.append(new Option(_user.UserID, _user.UserID));
+            });
+            GUI.btnBindUsers.find("i").eq(0).addClass("glyphicon glyphicon-ok", 1000);
+        }
+
+        function userSelected(_sel) {
+            var selectedUser = _.find(arrDistinctUsers, function (o) { return o.UserID === _sel.value; });
+            bindUserMovementDates(selectedUser);
+
+            dt.clear();
+            selectedUser.Movements.forEach(bindRow);
+        }
+
+        function userMovementDateSelected(_selectedDate) {
+            var selectedUserID = GUI.selUsers.val();
+            var selectedUser = _.find(arrDistinctUsers, function (u) { return u.UserID == selectedUserID });
+            console.log("selectedUser");
+            console.log(selectedUser);
+
+            dt.clear();
+            selectedUser.Hareketler[_selectedDate].forEach(bindRow);
+        }
+
+        function bindTable(_data) {
+            var data = _data || dataSet;
+            if (data.length===0) {
+                alert('Gösterilecek bir kayıt bulunamadı!');
+                return;
+            }
+
+            if (!dt) {
+                GUI.table.html('<table id="example" class="display" width="100%"></table>');
+            } 
+
+            dt = GUI.table.DataTable({
+                data: data,
+                columns: [
+                    { title: "Cihaz ID" },
+                    { title: "User ID" },
+                    { title: "Hareket" },
+                    { title: "Tarih" },
+                    { title: "Saat" },
+                    { title: "OK" }
+                ],
+                order: [[3, "desc"]]
+            });
+            GUI.divKullaniciHareketleri.show();
+            GUI.btnBindTable.find("i").eq(0).addClass("glyphicon glyphicon-ok", 1000);
+        }
+
+        function bindRow(rowData) {
+            //console.log(mv);
+            var row = $('<tr>' +
+                '<td>' + rowData.CihazID + '</td>' +
+                '<td>' + rowData.UserID + '</td>' +
+                '<td>' + rowData.Hareket + '</td>' +
+                '<td>' + rowData.Tarih + '</td>' +
+                '<td>' + rowData.Saat + '</td>' +
+                '<td class="glyphicon ' +
+                 (rowData.Giris ? 'glyphicon-log-in" style="color:green;"' : 'glyphicon-log-out" style="color:red;"') + '"> ' /*+ mv.OK*/ +
+                 '</td>' +
+                '</tr>');
+            dt.row.add(row[0]).draw();
+        }
+
+        function fileInputOnChance(e) {
+
+            var file = e.target.files[0];
+            if (!file) {
+                alert('Dosya seçtiğinizden emin olunuz lütfen!');
+                return;
+            }
+            var reader = new FileReader();
+            reader.onload = function (e) {
+                var contents = e.target.result;
+                GUI.txt.val(contents);
+
+                if (!GUI.cbShowButtons[0].checked) {
+                    runAuto();
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function fShowButtons(_elm) {
+            if (_elm.checked) {
+                GUI.divBtnGroup.show();
+            } else {
+                GUI.divBtnGroup.hide();
+            }
+        }
+
+        $(function () {
+            GUI = {
+                selUsers: $("#selUsers"),
+                txt: $("#txt"),
+                divKullaniciHareketleri: $("#divKullaniciHareketleri"),
+                table: $('#tblDatatable'),
+                fileInput: $("#fileInput"),
+                ulBadges: $("#ulBadges"),
+                cbShowButtons: $("#cbShowButtons"),
+                divBtnGroup: $("#divBtnGroup"),
+                btnClean: $("#btnClean"),
+                btnParse: $("#btnParse"),
+                btnDistinctUsers: $("#btnDistinctUsers"),
+                btnBindUsers: $("#btnBindUsers"),
+                btnBindTable: $("#btnBindTable")
+            };
+            GUI.divKullaniciHareketleri.hide();
+            GUI.divBtnGroup.hide();
+        });
+    </script>
+    <style>
+        .vertical-text {
+            transform: rotate(90deg);
+            transform-origin: left top 0;
+            font-size: 120%;
+            height: 100%;
+            width: 100%;
+            text-indent: 25px;
+        }
+
+        .normal-text {
+            /*transform: rotate(90deg);*/
+            transform-origin: left top 0;
+            font-size: 120%;
+            height: 100%;
+            width: 100%;
+            text-indent: 25px;
+        }
+    </style>
+</head>
+
+<body>
+    <p></p>
+    <div class="container">
+        <div class="row">
+
+        </div>
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="vertical-text"><b>Tüm Kayıtlar</b></div>
+                <div class="input-group">
+                    <input type="file" id="fileInput" class="form-control" onchange="fileInputOnChance(event)" />
+                    <span class="input-group-addon">
+                        <input type="checkbox" id="cbShowButtons" onchange="fShowButtons(this)" title="Düğmeleri Göster/Gizle"/>
+                    </span>
+                </div>
+                <textarea rows="6" cols="50" id="txt" class="form-control"></textarea>
+            </div>
+
+            <div class="col-lg-2 btn-group-vertical" id="divBtnGroup">
+                <div class="vertical-text"><b>&nbsp;</b></div>
+                <!--<input type="button" class="btn btn-primary" value="Clean" onclick="cleanWhitespaces()" />-->
+                <span class="btn btn-primary" onclick="cleanWhitespaces()" id="btnClean"><i class=""></i> Clean</span>
+                <!--<input type="button" class="btn btn-success" id="btnParse" value="Parse" onclick="parse()" />-->
+                <span class="btn btn-success" onclick="parse()" id="btnParse"><i class=""></i> Parse</span>
+                <!--<input type="button" class="btn btn-danger" id="btnBindTable" value="Bind Table" onclick="bindTable()" />-->
+                <span class="btn btn-danger" onclick="bindTable()" id="btnBindTable"><i class=""></i> Bind Table</span>
+                <!--<input type="button" class="btn btn-warning" value="Distinct Users" onclick="distinctUsers()" />-->
+                <span class="btn btn-warning" onclick="distinctUsers()" id="btnDistinctUsers"><i class=""></i> Distinct Users</span>
+                <!--<input type="button" class="btn btn-info" value="Bind Users" onclick="bindUsers()" />-->
+                <span class="btn btn-info" onclick="bindUsers()" id="btnBindUsers"><i class=""></i> Bind Users</span>
+            </div>
+            <div class="col-lg-2">
+                <div class="vertical-text"><b>Kullanıcılar</b></div>
+                <select multiple="multiple" id="selUsers" onchange="userSelected(this)" class="form-control" size="9"></select>
+            </div>
+            <div class="col-lg-*">
+                <div class="vertical-text"><b>&nbsp;</b></div>
+                <ul id="ulBadges" class="nav" style="height: 170px; overflow: auto; border: 1px solid #e2e2e2;">
+                    <li style="font-size: 20px;color: #e2e2e2;vertical-align: middle;top: 50%;left: 45%;width: 50%;">Tarihler</li>
+                </ul>
+            </div>
+        </div>
+        <div class="row" id="divKullaniciHareketleri">
+            <div class="col-lg-12">
+                <h3 class="notmal-text" style="color: #404f9e;border-bottom: 1px solid red;"><b>Kullanıcı Hareketleri</b></h3>
+                <table id="tblDatatable" class="display" width="100%"></table>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
