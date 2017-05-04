@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
     <title></title>
@@ -94,7 +94,6 @@
             return text;
         }
 
-
         function parse(_text) {
             var text = _text || GUI.txt.val();
             if (!text) {
@@ -158,7 +157,6 @@
                         UserID: prop,
                         Hareketler: grpTarihHareketler,
                         Movements: (function (_user, _grpTarihHareketler) {
-                            console.log(_user);
                             var movements = [];
                             for (var grpName in _grpTarihHareketler) {
                                 if (_grpTarihHareketler.hasOwnProperty(grpName)) {
@@ -183,27 +181,14 @@
                 }
             }
 
-            GUI.btnDistinctUsers.find("i").eq(0).addClass("glyphicon glyphicon-ok", 1000);
+            GUI.btnDistinctAndBindUsers.find("i").eq(0).addClass("glyphicon glyphicon-ok", 1000);
             return arrDistinctUsers;
         }
 
         function bindUserMovementDates(_user) {
-
-            var fCalismaSuresi1 = function (_arrTarih) {
-                if (_arrTarih.length != 2) return "???";
-                var d1 = new Date(); // giriş
-                d1.setHours(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[1]);
-                d1.setMinutes(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[2]);
-                var d0 = new Date(); // cikis
-                d0.setHours(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[1]);
-                d0.setMinutes(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[2]);
-
-                var dfark = d0 - d1;
-
-                return Math.floor((dfark / 1000) / 3600) + "." + Math.floor((dfark / 1000) / 60) % 60;
-            }
             var fCalismaSuresi = function (_arrTarih) {
-                if (_arrTarih.length !== 2) return '<span class="badge btn-warning pull-right">???</span>';
+                var divBadges = '<div class="pull-right divBadges">';
+                if (_arrTarih.length !== 2) return divBadges + '<span class="badge btn-warning pull-right">???</span></div>';
                 var d1 = new Date(); // giriş
                 d1.setHours(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[1]);
                 d1.setMinutes(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[2]);
@@ -212,11 +197,13 @@
                 d0.setMinutes(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[2]);
 
                 var dfark = d0 - d1;
-                return '<span class="badge btn-info pull-right">' +
+                return divBadges + '<span class="col-*-2 badge btn-success">' + _arrTarih[0].Saat.replace(/:00$/, "") + '</span>' +
+                    '<span class="col-*-2 badge btn-danger">' + _arrTarih[1].Saat.replace(/:00$/, "") + '</span>' +
+                '<span class="col-*-2 badge btn-info">' +
                     Math.floor((dfark / 1000) / 3600) +
                     "′ " +
                     Math.floor((dfark / 1000) / 60) % 60 +
-                    '″</span>';
+                    '″</span></div>';
             }
             // clean users
             GUI.ulBadges.html('');
@@ -226,7 +213,8 @@
                     var arrTarih = _user.Hareketler[dateProp];
 
                     var li = '<li class="active">' +
-                        '<a href="#" onclick="userMovementDateSelected(\'' + dateProp + '\');return 0;">' + dateProp +
+                        '<a href="#" onclick="userMovementDateSelected(\'' + dateProp + '\');return 0;">' +
+                        '<span class="col-*-*">' + dateProp + '</span>' +
                          fCalismaSuresi(arrTarih) +
                         '</a></li>';
                     GUI.ulBadges.append($(li));
@@ -270,14 +258,14 @@
 
         function bindTable(_data) {
             var data = _data || dataSet;
-            if (data.length===0) {
+            if (data.length === 0) {
                 alert('Gösterilecek bir kayıt bulunamadı!');
                 return;
             }
 
             if (!dt) {
                 GUI.table.html('<table id="example" class="display" width="100%"></table>');
-            } 
+            }
 
             dt = GUI.table.DataTable({
                 data: data,
@@ -304,7 +292,7 @@
                 '<td>' + rowData.Tarih + '</td>' +
                 '<td>' + rowData.Saat + '</td>' +
                 '<td class="glyphicon ' +
-                 (rowData.Giris ? 'glyphicon-log-in" style="color:green;"' : 'glyphicon-log-out" style="color:red;"') + '"> ' /*+ mv.OK*/ +
+                 (rowData.Giris ? 'glyphicon-log-in" style="color:green;"' : 'glyphicon-log-out" style="color:red;"') + '"> ' +
                  '</td>' +
                 '</tr>');
             dt.row.add(row[0]).draw();
@@ -337,6 +325,57 @@
             }
         }
 
+        function exportFile() {
+            var link = document.createElement('a'),
+                mimeType = 'text/plain';
+
+            link.setAttribute('download', 'exportCSV.csv');
+            link.setAttribute('href', 'data:' + mimeType + ';charset=utf-8,' + encodeURIComponent(prepareCSV()));
+            link.click();
+            GUI.btnExportFile.find("i").eq(0).addClass("glyphicon glyphicon-ok", 1000);
+        }
+
+        function prepareCSV(filename, elId, mimeType) {
+            var txt = "",
+                fGirisCikisFark = function (_arrTarih) {
+                    if (!Array.isArray(_arrTarih)) {
+                        var sUyari = 'Dizi olarak beklenen tarih bilgisi dizi değilmiş!';
+                        alert(sUyari);
+                        throw new Error(sUyari);
+                    }
+
+                    if (_arrTarih.length !== 2) return _arrTarih[0].Tarih + ";" + _arrTarih[0].Saat + ";" + ";";
+
+                    var d1 = new Date(); // giriş
+                    d1.setHours(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[1]);
+                    d1.setMinutes(_arrTarih[0].Saat.match(/(\d{2}):(\d{2})/)[2]);
+                    var d0 = new Date(); // cikis
+                    d0.setHours(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[1]);
+                    d0.setMinutes(_arrTarih[1].Saat.match(/(\d{2}):(\d{2})/)[2]);
+
+                    var dfark = d0 - d1;
+                    return _arrTarih[0].Tarih + ";" +
+                        _arrTarih[0].Saat.replace(/:00$/, "") +
+                        ';' +
+                        _arrTarih[1].Saat.replace(/:00$/, "") +
+                        ';' +
+                        Math.floor((dfark / 1000) / 3600) +
+                        ":" +
+                        Math.floor((dfark / 1000) / 60) % 60;
+                };
+
+            arrDistinctUsers.forEach(function (_user) {
+                for (var dateProp in _user.Hareketler) {
+                    if (_user.Hareketler.hasOwnProperty(dateProp)) {
+                        var arrTarih = _user.Hareketler[dateProp];
+                        txt += '="'+_user.UserID+'";' + fGirisCikisFark(arrTarih) + "\n";
+                    }
+                }
+            });
+
+            return txt;
+        }
+
         $(function () {
             GUI = {
                 selUsers: $("#selUsers"),
@@ -349,8 +388,8 @@
                 divBtnGroup: $("#divBtnGroup"),
                 btnClean: $("#btnClean"),
                 btnParse: $("#btnParse"),
-                btnDistinctUsers: $("#btnDistinctUsers"),
-                btnBindUsers: $("#btnBindUsers"),
+                btnDistinctAndBindUsers: $("#btnDistinctAndBindUsers"),
+                btnExportFile: $("#btnExportFile"),
                 btnBindTable: $("#btnBindTable")
             };
             GUI.divKullaniciHareketleri.hide();
@@ -375,6 +414,11 @@
             width: 100%;
             text-indent: 25px;
         }
+
+        .divBadges span {
+            min-width: 55px;
+            margin-left: 5px;
+        }
     </style>
 </head>
 
@@ -385,18 +429,18 @@
 
         </div>
         <div class="row">
-            <div class="col-lg-4">
+            <div class="col-lg-4 col-md-4 col-sm-6 col-xs-6">
                 <div class="vertical-text"><b>Tüm Kayıtlar</b></div>
                 <div class="input-group">
                     <input type="file" id="fileInput" class="form-control" onchange="fileInputOnChance(event)" />
                     <span class="input-group-addon">
-                        <input type="checkbox" id="cbShowButtons" onchange="fShowButtons(this)" title="Düğmeleri Göster/Gizle"/>
+                        <input type="checkbox" id="cbShowButtons" onchange="fShowButtons(this)" title="Düğmeleri Göster/Gizle" />
                     </span>
                 </div>
                 <textarea rows="6" cols="50" id="txt" class="form-control"></textarea>
             </div>
 
-            <div class="col-lg-2 btn-group-vertical" id="divBtnGroup">
+            <div class="col-lg-2 col-md-4 col-sm-6 col-xs-6 btn-group-vertical" id="divBtnGroup">
                 <div class="vertical-text"><b>&nbsp;</b></div>
                 <!--<input type="button" class="btn btn-primary" value="Clean" onclick="cleanWhitespaces()" />-->
                 <span class="btn btn-primary" onclick="cleanWhitespaces()" id="btnClean"><i class=""></i> Clean</span>
@@ -405,11 +449,11 @@
                 <!--<input type="button" class="btn btn-danger" id="btnBindTable" value="Bind Table" onclick="bindTable()" />-->
                 <span class="btn btn-danger" onclick="bindTable()" id="btnBindTable"><i class=""></i> Bind Table</span>
                 <!--<input type="button" class="btn btn-warning" value="Distinct Users" onclick="distinctUsers()" />-->
-                <span class="btn btn-warning" onclick="distinctUsers()" id="btnDistinctUsers"><i class=""></i> Distinct Users</span>
+                <span class="btn btn-warning" onclick="distinctUsers();bindUsers();" id="btnDistinctAndBindUsers"><i class=""></i> Distinct & Bind Users</span>
                 <!--<input type="button" class="btn btn-info" value="Bind Users" onclick="bindUsers()" />-->
-                <span class="btn btn-info" onclick="bindUsers()" id="btnBindUsers"><i class=""></i> Bind Users</span>
+                <span class="btn btn-info" onclick="exportFile()" id="btnExportFile"><i class=""></i> Export CSV</span>
             </div>
-            <div class="col-lg-2">
+            <div class="col-lg-2 col-md-4 col-sm-12 col-xs-12">
                 <div class="vertical-text"><b>Kullanıcılar</b></div>
                 <select multiple="multiple" id="selUsers" onchange="userSelected(this)" class="form-control" size="9"></select>
             </div>
